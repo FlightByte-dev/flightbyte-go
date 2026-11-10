@@ -221,7 +221,8 @@ func (s *SubscriptionsService) Deliveries(ctx context.Context, id string, limit 
 		return nil, err
 	}
 	var out struct {
-		Data []Delivery `json:"data"`
+		Count int        `json:"count"`
+		Data  []Delivery `json:"data"`
 	}
 	if err := s.c.do(ctx, "GET", []string{"subscriptions", id, "deliveries"}, limitQuery(limit), nil, nil, &out); err != nil {
 		return nil, err
@@ -236,7 +237,8 @@ func (s *SubscriptionsService) Events(ctx context.Context, id string, limit int)
 		return nil, err
 	}
 	var out struct {
-		Data []WebhookEvent `json:"data"`
+		Count int            `json:"count"`
+		Data  []WebhookEvent `json:"data"`
 	}
 	if err := s.c.do(ctx, "GET", []string{"subscriptions", id, "events"}, limitQuery(limit), nil, nil, &out); err != nil {
 		return nil, err

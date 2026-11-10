@@ -232,6 +232,8 @@ type FlightLeg struct {
 type FlightTimeline struct {
 	// FlightKey is the flight's key.
 	FlightKey string `json:"flightKey"`
+	// Count is the number of entries.
+	Count int `json:"count"`
 	// Entries holds the history entries, newest first.
 	Entries []TimelineEntry `json:"data"`
 }

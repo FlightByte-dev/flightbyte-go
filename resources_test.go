@@ -42,7 +42,7 @@ func TestFlightsGet(t *testing.T) {
 
 func TestFlightsTimeline(t *testing.T) {
 	h := newHarness(t)
-	h.json(200, `{"flightKey":"TK1848:2026-09-08","data":[
+	h.json(200, `{"flightKey":"TK1848:2026-09-08","count":1,"data":[
 		{"occurredAt":"2026-09-08T08:38:16.000Z","title":"Time Adjustment","source":"Airline","events":["x"]}]}`)
 
 	tl, err := h.client.Flights.Timeline(context.Background(), FlightParams{
@@ -55,7 +55,7 @@ func TestFlightsTimeline(t *testing.T) {
 	if r.Path != "/v1/flights/TK/1848/2026-09-08/timeline" || r.Query != "origin=IST" {
 		t.Errorf("%s?%s", r.Path, r.Query)
 	}
-	if tl.FlightKey != "TK1848:2026-09-08" || len(tl.Entries) != 1 || tl.Entries[0].Title != "Time Adjustment" {
+	if tl.FlightKey != "TK1848:2026-09-08" || tl.Count != 1 || len(tl.Entries) != 1 || tl.Entries[0].Title != "Time Adjustment" {
 		t.Errorf("timeline: %+v", tl)
 	}
 }

@@ -16,7 +16,8 @@ func (s *CountriesService) List(ctx context.Context, lang string) ([]Country, er
 	q := url.Values{}
 	setIf(q, "lang", lang)
 	var out struct {
-		Data []Country `json:"data"`
+		Count int       `json:"count"`
+		Data  []Country `json:"data"`
 	}
 	if err := s.c.do(ctx, "GET", []string{"countries"}, q, nil, nil, &out); err != nil {
 		return nil, err

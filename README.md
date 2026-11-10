@@ -80,8 +80,18 @@
 
 ```bash
 export FLIGHTBYTE_API_KEY=frk_live_...
-go run github.com/FlightByte-dev/flightbyte-go/examples/lookup@latest TK 1 2026-11-10
+go run github.com/FlightByte-dev/flightbyte-go/examples/lookup@latest TK 1 2026-11-11
 ```
+
+```text
+TK1:2026-11-11@SAW-AMS  SAW → AMS
+Status     Scheduled (scheduled)
+Departure  2026-11-11T10:40:00.000 +03, gate -
+Arrival    2026-11-11T12:35:00.000 CET, baggage -
+Quota      23 of 30 left this minute
+```
+
+TK1 flies two legs that day, and without an `Origin` the API picked one; `flight.Alternates` lists both.
 
 ## What you can do
 
