@@ -1,4 +1,4 @@
-## Unreleased
+## 0.1.1
 
 - `FlightTimeline.Count`, the number of entries. The API sends it with every timeline, and the model now keeps it.
 
