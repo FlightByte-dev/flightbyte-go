@@ -1,3 +1,8 @@
+## 0.1.2
+
+- Security: the client no longer follows a redirect to another host or from https to http. Go copies the `X-API-Key` header on every redirect, so a 3xx answer could hand the API key to another server, or send it in the clear. Such a redirect now comes back as an `*APIError` with its 3xx status. A client passed with `WithHTTPClient` is copied, not changed, and its own `CheckRedirect` still applies within the same host.
+- `Client.LastRateLimit` returns a copy of each window too, so changing the result no longer changes the client's own state or races with requests in flight.
+
 ## 0.1.1
 
 - `FlightTimeline.Count`, the number of entries. The API sends it with every timeline, and the model now keeps it.

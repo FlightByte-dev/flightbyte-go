@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"sync"
 	"testing"
@@ -124,10 +125,108 @@ func TestRateLimitHeaders(t *testing.T) {
 		t.Error("a response without quota headers cleared LastRateLimit")
 	}
 
-	// The returned value is a copy.
+	// The returned value is a deep copy: changing it changes nothing inside.
+	rl.Minute.Remaining = 0
 	rl.Minute = nil
-	if h.client.LastRateLimit().Minute == nil {
-		t.Error("LastRateLimit returns shared state")
+	if got := h.client.LastRateLimit().Minute; got == nil || got.Remaining != 59 {
+		t.Errorf("LastRateLimit returns shared state: Minute = %+v", got)
+	}
+}
+
+func TestRedirectToAnotherHostKeepsTheKey(t *testing.T) {
+	var otherRequests int
+	var leaked string
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		otherRequests++
+		leaked = r.Header.Get("X-API-Key")
+		_, _ = io.WriteString(w, `{"data":[]}`)
+	}))
+	t.Cleanup(other.Close)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/steal", http.StatusFound)
+	}))
+	t.Cleanup(api.Close)
+
+	c, _ := NewClient("frk_secret", WithBaseURL(api.URL+"/v1"))
+	_, err := c.Countries.List(context.Background(), "")
+
+	if otherRequests != 0 || leaked != "" {
+		t.Fatalf("the redirect was followed to another host, which got key %q", leaked)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusFound {
+		t.Errorf("err = %v, want an *APIError with status 302", err)
+	}
+}
+
+func TestRedirectWithinTheHostIsFollowed(t *testing.T) {
+	var keys []string
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		keys = append(keys, r.Header.Get("X-API-Key"))
+		if r.URL.Path == "/v1/countries" {
+			http.Redirect(w, r, server.URL+"/v1/moved", http.StatusMovedPermanently)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":[{"code":"TR"}]}`)
+	}))
+	t.Cleanup(server.Close)
+
+	user := &http.Client{}
+	c, _ := NewClient("frk_secret", WithBaseURL(server.URL+"/v1"), WithHTTPClient(user))
+	list, err := c.Countries.List(context.Background(), "")
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list %v, err %v", list, err)
+	}
+	if len(keys) != 2 || keys[0] != "frk_secret" || keys[1] != "frk_secret" {
+		t.Errorf("keys seen = %q, want the key on both requests", keys)
+	}
+	if user.CheckRedirect != nil {
+		t.Error("NewClient changed the http.Client it was given")
+	}
+}
+
+func TestUserCheckRedirectStillApplies(t *testing.T) {
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/countries" {
+			http.Redirect(w, r, server.URL+"/v1/moved", http.StatusFound)
+			return
+		}
+		_, _ = io.WriteString(w, `{"data":[]}`)
+	}))
+	t.Cleanup(server.Close)
+
+	refuse := errors.New("no redirects for me")
+	calls := 0
+	user := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		calls++
+		return refuse
+	}}
+	c, _ := NewClient("k", WithBaseURL(server.URL+"/v1"), WithHTTPClient(user))
+	_, err := c.Countries.List(context.Background(), "")
+	if calls != 1 || !errors.Is(err, refuse) {
+		t.Errorf("calls %d, err %v: want the user's CheckRedirect to decide", calls, err)
+	}
+}
+
+func TestRedirectLoopStops(t *testing.T) {
+	hits := 0
+	var server *httptest.Server
+	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		http.Redirect(w, r, server.URL+"/v1/countries", http.StatusFound)
+	}))
+	t.Cleanup(server.Close)
+
+	c, _ := NewClient("k", WithBaseURL(server.URL+"/v1"))
+	_, err := c.Countries.List(context.Background(), "")
+	var connErr *ConnectionError
+	if !errors.As(err, &connErr) || !strings.Contains(err.Error(), "stopped after 10 redirects") {
+		t.Errorf("err = %v", err)
+	}
+	if hits != 10 {
+		t.Errorf("%d requests, want 10", hits)
 	}
 }
 

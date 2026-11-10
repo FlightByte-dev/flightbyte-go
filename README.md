@@ -277,7 +277,7 @@ client, err := flightbyte.NewClient(apiKey,
 | --- | --- | --- |
 | `apiKey` | required | Your API key, sent as `X-API-Key`. Keep it on your server. |
 | `WithBaseURL` | `https://api.flightbyte.dev/v1` | API base URL, e.g. `http://localhost:3000/v1` for a local API. |
-| `WithHTTPClient` | a new `http.Client` | Bring your own for retries, proxies, logging or tests. |
+| `WithHTTPClient` | a new `http.Client` | Bring your own for retries, proxies, logging or tests. It is copied, not changed, and a redirect to another host or from https to http is never followed, so your key stays with the API. |
 | `WithTimeout` | 30 seconds | Bounds each request, response body included. `0` leaves it to the context. |
 | `WithUserAgent` | none | Prepended to `flightbyte-go/<version>` in the `User-Agent` header. |
 

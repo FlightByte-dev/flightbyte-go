@@ -64,6 +64,10 @@ func WithBaseURL(baseURL string) Option {
 
 // WithHTTPClient sends requests through httpClient, for example one with a
 // custom transport for retries, proxies or logging.
+//
+// The client is copied, not changed. The copy follows a redirect only to the
+// same scheme and host, so the API key never reaches another server; within
+// that, httpClient's own CheckRedirect still applies.
 func WithHTTPClient(httpClient *http.Client) Option {
 	return func(c *Client) error {
 		if httpClient == nil {
@@ -113,6 +117,7 @@ func NewClient(apiKey string, opts ...Option) (*Client, error) {
 			return nil, err
 		}
 	}
+	c.httpClient = withSafeRedirects(c.httpClient)
 	c.Flights = &FlightsService{c: c}
 	c.Subscriptions = &SubscriptionsService{c: c}
 	c.Countries = &CountriesService{c: c}
@@ -130,7 +135,43 @@ func (c *Client) LastRateLimit() *RateLimit {
 	if c.lastRateLimit == nil {
 		return nil
 	}
-	copied := *c.lastRateLimit
+	return &RateLimit{
+		Minute: copyWindow(c.lastRateLimit.Minute),
+		Day:    copyWindow(c.lastRateLimit.Day),
+		Month:  copyWindow(c.lastRateLimit.Month),
+	}
+}
+
+func copyWindow(w *RateLimitWindow) *RateLimitWindow {
+	if w == nil {
+		return nil
+	}
+	copied := *w
+	return &copied
+}
+
+// withSafeRedirects returns a copy of hc that follows a redirect only to the
+// scheme and host of the original request. Go copies custom headers such as
+// X-API-Key on every redirect, even to another host, so following one there
+// would hand the key to that host, and following https to http would send it
+// in the clear. A redirect that is not followed comes back as an [*APIError]
+// with its 3xx status.
+func withSafeRedirects(hc *http.Client) *http.Client {
+	copied := *hc
+	next := hc.CheckRedirect
+	copied.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		first := via[0].URL
+		if req.URL.Scheme != first.Scheme || !strings.EqualFold(req.URL.Host, first.Host) {
+			return http.ErrUseLastResponse
+		}
+		if next != nil {
+			return next(req, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
 	return &copied
 }
 
