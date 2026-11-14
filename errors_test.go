@@ -113,6 +113,29 @@ func TestPaymentRequired(t *testing.T) {
 	}
 }
 
+func TestPaymentRequiredCreditsExhausted(t *testing.T) {
+	h := newHarness(t)
+	h.json(402, `{"statusCode":402,"message":"No credits left.","code":"credits_exhausted",
+		"balance":0,"expiresAt":"2027-01-01T00:00:00.000Z"}`)
+	_, err := h.client.Subscriptions.Create(context.Background(), CreateSubscriptionParams{
+		Carrier: "TK", FlightNumber: "1848", Date: "2026-09-08", WebhookURL: "https://example.com/h",
+	})
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || !errors.Is(err, ErrPaymentRequired) {
+		t.Fatal(err)
+	}
+	if apiErr.Code != "credits_exhausted" || apiErr.Balance == nil || *apiErr.Balance != 0 {
+		t.Errorf("apiErr = %+v", apiErr)
+	}
+	if apiErr.ExpiresAt == nil || !apiErr.ExpiresAt.Equal(time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC)) {
+		t.Errorf("ExpiresAt = %v", apiErr.ExpiresAt)
+	}
+	if apiErr.Limit != nil || apiErr.Used != nil || apiErr.ResetsAt != nil {
+		t.Errorf("Limit, Used, ResetsAt = %v, %v, %v; want nil", apiErr.Limit, apiErr.Used, apiErr.ResetsAt)
+	}
+}
+
 func TestRateLimited(t *testing.T) {
 	h := newHarness(t)
 	h.json(429, `{"statusCode":429,"message":"Too many requests.","window":"minute","retryAfterSeconds":12}`)

@@ -1,3 +1,7 @@
+## Unreleased
+
+- `APIError.Balance` and `APIError.ExpiresAt`, the prepaid credits left and when they expire, on a 402 with the new `"credits_exhausted"` code, sent when prepaid credits are used up. `Limit`, `Used` and `ResetsAt` are nil with that code.
+
 ## 0.1.2
 
 - Security: the client no longer follows a redirect to another host or from https to http. Go copies the `X-API-Key` header on every redirect, so a 3xx answer could hand the API key to another server, or send it in the clear. Such a redirect now comes back as an `*APIError` with its 3xx status. A client passed with `WithHTTPClient` is copied, not changed, and its own `CheckRedirect` still applies within the same host.

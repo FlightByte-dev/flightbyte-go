@@ -18,9 +18,10 @@ var (
 	// ErrUnauthorized matches a 401: the API key is missing, invalid or
 	// revoked.
 	ErrUnauthorized = errors.New("flightbyte: unauthorized")
-	// ErrPaymentRequired matches a 402: no watched flights are left in this
-	// usage period. [APIError.Code] is "watched_flight_limit" or
-	// "overage_cap_reached".
+	// ErrPaymentRequired matches a 402: no watched flights can be created.
+	// [APIError.Code] is "watched_flight_limit" (the plan's cap),
+	// "overage_cap_reached" (the account's overage cap) or
+	// "credits_exhausted" (prepaid credits used up).
 	ErrPaymentRequired = errors.New("flightbyte: payment required")
 	// ErrForbidden matches a 403: the account is suspended
 	// ("account_suspended") or a token lacks the scope ("insufficient_scope").
@@ -65,14 +66,23 @@ type APIError struct {
 	// again.
 	Legs []AmbiguousLeg
 	// Limit is the number of watched flights the period allows, on a 402.
+	// Not with "credits_exhausted".
 	Limit *int
 	// Used is the number of watched flights created this period, on a 402.
+	// Not with "credits_exhausted".
 	Used *int
 	// ResetsAt is when the period, and so the count, resets, on a 402.
+	// Not with "credits_exhausted".
 	ResetsAt *time.Time
 	// CapCents is the account's overage cap in US cents, on a 402 with
 	// "overage_cap_reached".
 	CapCents *int
+	// Balance is the prepaid credits left, on a 402 with "credits_exhausted".
+	Balance *int
+	// ExpiresAt is when the prepaid credits expire or expired, 12 months
+	// after the last top-up, on a 402 with "credits_exhausted". Nil when the
+	// API sends none.
+	ExpiresAt *time.Time
 	// Window is the quota window that ran out, on a 429: "minute", "day" or
 	// "month".
 	Window string
@@ -197,11 +207,9 @@ func newAPIError(status int, raw []byte, header http.Header) *APIError {
 	e.Limit = intField(e.Body, "limit")
 	e.Used = intField(e.Body, "used")
 	e.CapCents = intField(e.Body, "capCents")
-	if s := stringField(e.Body, "resetsAt"); s != "" {
-		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
-			e.ResetsAt = &t
-		}
-	}
+	e.Balance = intField(e.Body, "balance")
+	e.ResetsAt = timeField(e.Body, "resetsAt")
+	e.ExpiresAt = timeField(e.Body, "expiresAt")
 	e.Window = stringField(e.Body, "window")
 	if seconds := intField(e.Body, "retryAfterSeconds"); seconds != nil {
 		e.RetryAfter = time.Duration(*seconds) * time.Second
@@ -214,6 +222,15 @@ func newAPIError(status int, raw []byte, header http.Header) *APIError {
 func stringField(m map[string]any, key string) string {
 	s, _ := m[key].(string)
 	return s
+}
+
+func timeField(m map[string]any, key string) *time.Time {
+	if s := stringField(m, key); s != "" {
+		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			return &t
+		}
+	}
+	return nil
 }
 
 func intField(m map[string]any, key string) *int {
