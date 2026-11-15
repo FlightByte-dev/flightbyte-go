@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -183,6 +184,37 @@ func TestRedirectWithinTheHostIsFollowed(t *testing.T) {
 	}
 	if user.CheckRedirect != nil {
 		t.Error("NewClient changed the http.Client it was given")
+	}
+}
+
+func TestRedirectIsNotFollowedForWrites(t *testing.T) {
+	for _, status := range []int{http.StatusMovedPermanently, http.StatusFound, http.StatusSeeOther, http.StatusTemporaryRedirect} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			var methods []string
+			var server *httptest.Server
+			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				methods = append(methods, r.Method)
+				if r.URL.Path == "/v1/subscriptions" {
+					http.Redirect(w, r, server.URL+"/v1/subscriptions/", status)
+					return
+				}
+				_, _ = io.WriteString(w, `{"id":"sub_from_the_redirect","total":0,"data":[]}`)
+			}))
+			t.Cleanup(server.Close)
+
+			c, _ := NewClient("frk_secret", WithBaseURL(server.URL+"/v1"))
+			created, err := c.Subscriptions.Create(context.Background(), CreateSubscriptionParams{
+				Carrier: "TK", FlightNumber: "1848", Date: "2026-09-08", WebhookURL: "https://example.com/hook",
+			})
+
+			if len(methods) != 1 || methods[0] != http.MethodPost {
+				t.Fatalf("requests = %q, want the POST alone", methods)
+			}
+			var apiErr *APIError
+			if created != nil || !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+				t.Errorf("created %+v, err %v, want an *APIError with status %d", created, err, status)
+			}
+		})
 	}
 }
 

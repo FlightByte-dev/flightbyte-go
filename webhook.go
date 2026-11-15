@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -43,6 +44,12 @@ const MaxWebhookBodyBytes = 1 << 20
 // [errors.Is].
 var ErrInvalidSignature = errors.New("flightbyte: invalid webhook signature")
 
+// ErrEmptySecret is returned by [VerifyWebhook] and [ConstructWebhookEvent]
+// when the signing secret is empty. Anyone can sign with an empty key, so
+// such a secret would accept forged events. It usually means the secret was
+// not configured, for example an unset environment variable.
+var ErrEmptySecret = errors.New("flightbyte: the webhook signing secret is empty")
+
 // WebhookSignatureError is returned when a webhook signature does not
 // verify.
 type WebhookSignatureError struct {
@@ -64,6 +71,7 @@ type VerifyOption func(*verifyConfig)
 type verifyConfig struct {
 	tolerance time.Duration
 	now       time.Time
+	onError   func(*http.Request, *WebhookEvent, error)
 }
 
 // WithTolerance sets how far the signing time may be from now. Zero skips
@@ -78,6 +86,14 @@ func WithNow(now time.Time) VerifyOption {
 	return func(c *verifyConfig) { c.now = now }
 }
 
+// WithErrorHandler sets what [WebhookHandler] does with an error handle
+// returns, after answering 500 so the API retries the delivery. The default
+// logs it with the log package. [VerifyWebhook] and [ConstructWebhookEvent]
+// ignore it.
+func WithErrorHandler(report func(r *http.Request, event *WebhookEvent, err error)) VerifyOption {
+	return func(c *verifyConfig) { c.onError = report }
+}
+
 // VerifyWebhook checks signature (the X-Flightbyte-Signature header) against
 // the raw request body payload and the subscription's signing secret.
 //
@@ -87,8 +103,11 @@ func WithNow(now time.Time) VerifyOption {
 // than the tolerance from now is rejected, which stops replays.
 //
 // It returns a [*WebhookSignatureError], matching [ErrInvalidSignature], when
-// the signature does not verify.
+// the signature does not verify, and [ErrEmptySecret] when secret is empty.
 func VerifyWebhook(payload []byte, signature, secret string, opts ...VerifyOption) error {
+	if strings.TrimSpace(secret) == "" {
+		return ErrEmptySecret
+	}
 	cfg := verifyConfig{tolerance: DefaultWebhookTolerance}
 	for _, opt := range opts {
 		opt(&cfg)
@@ -123,7 +142,8 @@ func VerifyWebhook(payload []byte, signature, secret string, opts ...VerifyOptio
 // decodes the event.
 //
 // It returns a [*WebhookSignatureError] when the signature does not verify,
-// and a JSON error when the verified body is not a webhook event.
+// [ErrEmptySecret] when secret is empty, and a decoding error when the
+// verified body is not a webhook event.
 func ConstructWebhookEvent(payload []byte, signature, secret string, opts ...VerifyOption) (*WebhookEvent, error) {
 	if err := VerifyWebhook(payload, signature, secret, opts...); err != nil {
 		return nil, err
@@ -131,6 +151,9 @@ func ConstructWebhookEvent(payload []byte, signature, secret string, opts ...Ver
 	var event WebhookEvent
 	if err := json.Unmarshal(payload, &event); err != nil {
 		return nil, fmt.Errorf("flightbyte: decoding the webhook event: %w", err)
+	}
+	if event.ID == "" || event.Type == "" {
+		return nil, errors.New("flightbyte: decoding the webhook event: the body is not a FlightByte event")
 	}
 	return &event, nil
 }
@@ -151,9 +174,32 @@ func SignWebhook(payload []byte, secret string, at time.Time) string {
 // delivery) and 200 otherwise. Retries carry the same event id, so make
 // handle idempotent by deduplicating on [WebhookEvent.ID].
 //
+// An error from handle is logged with the log package, unless
+// [WithErrorHandler] says otherwise.
+//
 // The API retries a delivery that takes too long, so do slow work after
 // returning, for example on a queue.
+//
+// WebhookHandler panics when secret is empty, which usually means it was not
+// configured: anyone can sign with an empty key. It panics when handle is nil
+// too.
 func WebhookHandler(secret string, handle func(context.Context, *WebhookEvent) error, opts ...VerifyOption) http.Handler {
+	if strings.TrimSpace(secret) == "" {
+		panic("flightbyte: WebhookHandler needs the webhook signing secret, and it is empty")
+	}
+	if handle == nil {
+		panic("flightbyte: WebhookHandler needs a handle function, and it is nil")
+	}
+	cfg := verifyConfig{}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+	report := cfg.onError
+	if report == nil {
+		report = func(_ *http.Request, event *WebhookEvent, err error) {
+			log.Printf("flightbyte: the webhook handler failed for event %s (%s): %v", event.ID, event.Type, err)
+		}
+	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			w.Header().Set("Allow", http.MethodPost)
@@ -181,6 +227,7 @@ func WebhookHandler(secret string, handle func(context.Context, *WebhookEvent) e
 		}
 		if err := handle(r.Context(), event); err != nil {
 			http.Error(w, "handler failed", http.StatusInternalServerError)
+			report(r, event, err)
 			return
 		}
 		w.WriteHeader(http.StatusOK)

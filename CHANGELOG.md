@@ -1,5 +1,9 @@
 ## Unreleased
 
+- Fix: a `POST`, `PATCH` or `DELETE` that gets a redirect is no longer followed. Go turns such a request into a `GET` without a body on a 301, 302 or 303, so `Subscriptions.Create` could return what the `GET` answered, with no error, although nothing was created. Only a `GET` or `HEAD` follows a redirect now, as in the Node and Dart clients; any other comes back as an `*APIError` with its 3xx status.
+- Security: `VerifyWebhook` and `ConstructWebhookEvent` return the new `ErrEmptySecret` for an empty signing secret, and `WebhookHandler` panics on one. Anyone can sign with an empty key, so an unset environment variable used to accept forged events.
+- `WebhookHandler` logs an error your function returns, and the new `WithErrorHandler` option sends it elsewhere. It used to answer 500 and drop the error.
+- `ConstructWebhookEvent` returns an error for a verified body without an `id` or `type`, instead of an empty event.
 - `APIError.Balance` and `APIError.ExpiresAt`, the prepaid credits left and when they expire, on a 402 with the new `"credits_exhausted"` code, sent when prepaid credits are used up. `Limit`, `Used` and `ResetsAt` are nil with that code.
 
 ## 0.1.2

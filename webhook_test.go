@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -176,13 +177,19 @@ func TestWebhookHandler(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			var got *WebhookEvent
+			var reported error
 			handler := WebhookHandler(secret, func(ctx context.Context, e *WebhookEvent) error {
 				if ctx == nil {
 					t.Error("nil context")
 				}
 				got = e
 				return tc.handleErr
-			})
+			}, WithErrorHandler(func(_ *http.Request, e *WebhookEvent, err error) {
+				if e == nil || e.ID != "evt_2" {
+					t.Errorf("the error handler got event %+v", e)
+				}
+				reported = err
+			}))
 			req := httptest.NewRequest(tc.method, "/hooks/flightbyte", bytes.NewReader(tc.body))
 			if tc.signature != "" {
 				req.Header.Set("x-flightbyte-signature", tc.signature)
@@ -199,7 +206,67 @@ func TestWebhookHandler(t *testing.T) {
 			if got != nil && (got.ID != "evt_2" || got.Changes[0].To != "A22") {
 				t.Errorf("event = %+v", got)
 			}
+			if !errors.Is(reported, tc.handleErr) || (reported == nil) != (tc.handleErr == nil) {
+				t.Errorf("reported error = %v, want %v", reported, tc.handleErr)
+			}
 		})
+	}
+}
+
+func TestWebhookHandlerLogsHandlerErrorsByDefault(t *testing.T) {
+	const secret = "whsec_handler"
+	payload := fixture(t, "webhook_flight_updated.json")
+	var logged bytes.Buffer
+	defer log.SetOutput(log.Writer())
+	log.SetOutput(&logged)
+
+	handler := WebhookHandler(secret, func(context.Context, *WebhookEvent) error { return errors.New("db down") })
+	req := httptest.NewRequest(http.MethodPost, "/hooks/flightbyte", bytes.NewReader(payload))
+	req.Header.Set(SignatureHeader, SignWebhook(payload, secret, time.Now()))
+	handler.ServeHTTP(httptest.NewRecorder(), req)
+
+	if !strings.Contains(logged.String(), "evt_2") || !strings.Contains(logged.String(), "db down") {
+		t.Errorf("logged %q, want the event id and the error", logged.String())
+	}
+}
+
+func TestEmptySecretIsRejected(t *testing.T) {
+	payload := []byte(`{"id":"evt_forged","type":"flight.updated"}`)
+	for _, secret := range []string{"", "  "} {
+		forged := SignWebhook(payload, secret, time.Now())
+		if err := VerifyWebhook(payload, forged, secret); !errors.Is(err, ErrEmptySecret) {
+			t.Errorf("VerifyWebhook with secret %q: err = %v, want ErrEmptySecret", secret, err)
+		}
+		if _, err := ConstructWebhookEvent(payload, forged, secret); !errors.Is(err, ErrEmptySecret) {
+			t.Errorf("ConstructWebhookEvent with secret %q: err = %v, want ErrEmptySecret", secret, err)
+		}
+	}
+}
+
+func TestWebhookHandlerPanicsWithoutSecretOrHandle(t *testing.T) {
+	mustPanic := func(name string, build func()) {
+		t.Helper()
+		defer func() {
+			if recover() == nil {
+				t.Errorf("%s did not panic", name)
+			}
+		}()
+		build()
+	}
+	mustPanic("an empty secret", func() {
+		WebhookHandler("", func(context.Context, *WebhookEvent) error { return nil })
+	})
+	mustPanic("a nil handle", func() { WebhookHandler("whsec_x", nil) })
+}
+
+func TestConstructWebhookEventNeedsAnEvent(t *testing.T) {
+	const secret = "whsec_x"
+	for _, body := range []string{`{}`, `{"id":"evt_1"}`, `{"type":"flight.updated"}`} {
+		payload := []byte(body)
+		_, err := ConstructWebhookEvent(payload, SignWebhook(payload, secret, time.Now()), secret)
+		if err == nil || errors.Is(err, ErrInvalidSignature) {
+			t.Errorf("%s: err = %v, want a decoding error", body, err)
+		}
 	}
 }
 

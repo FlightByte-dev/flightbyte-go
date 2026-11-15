@@ -184,7 +184,7 @@ mux.Handle("POST /hooks/flights", flightbyte.WebhookHandler(signingSecret,
 	}))
 ```
 
-It answers `401` for a bad signature, `400` for a body that is not an event, `500` when your function returns an error (so FlightByte retries) and `200` otherwise. Then, off the request path:
+It answers `401` for a bad signature, `400` for a body that is not an event, `500` when your function returns an error (so FlightByte retries) and `200` otherwise. An error from your function is logged with the `log` package; pass `flightbyte.WithErrorHandler(fn)` to send it somewhere else. `WebhookHandler` panics when the secret is empty, because anyone can sign with an empty key: an unset environment variable fails at startup instead of accepting forged events. Then, off the request path:
 
 ```go
 for event := range jobs {
@@ -277,7 +277,7 @@ client, err := flightbyte.NewClient(apiKey,
 | --- | --- | --- |
 | `apiKey` | required | Your API key, sent as `X-API-Key`. Keep it on your server. |
 | `WithBaseURL` | `https://api.flightbyte.dev/v1` | API base URL, e.g. `http://localhost:3000/v1` for a local API. |
-| `WithHTTPClient` | a new `http.Client` | Bring your own for retries, proxies, logging or tests. It is copied, not changed, and a redirect to another host or from https to http is never followed, so your key stays with the API. |
+| `WithHTTPClient` | a new `http.Client` | Bring your own for retries, proxies, logging or tests. It is copied, not changed. A redirect is followed only for a `GET` and only on the same host and scheme, so your key stays with the API and a write is never replayed as a `GET`. |
 | `WithTimeout` | 30 seconds | Bounds each request, response body included. `0` leaves it to the context. |
 | `WithUserAgent` | none | Prepended to `flightbyte-go/<version>` in the `User-Agent` header. |
 
