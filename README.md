@@ -255,8 +255,10 @@ Every status is explained in the [errors docs](https://flightbyte.dev/docs/error
 
 ## Built for Go services
 
-- **No dependencies.** Only the standard library: `net/http`, `encoding/json` and `crypto/hmac`. Nothing to audit but this module.
 - **One client, many goroutines.** A `*Client` is safe for concurrent use; create it once and share it. Every call honours its context's deadline and cancellation.
+- **No dependencies.** Only the standard library: `net/http`, `encoding/json` and `crypto/hmac`. Nothing to audit but this module.
+- **Your key stays on your server.** An API key or a signing secret shipped inside a mobile or web app can be pulled out of it by anyone who has the app. Flag images are the exception: `Countries.FlagURL` needs no key.
+- **Your key stays with the API.** The client follows a redirect only for a read, and only on the API's own host and scheme, so a misdirected answer cannot carry the key elsewhere and a write is never replayed as a `GET`.
 - **New API values don't break old binaries.** Phases, statuses, change types and event types are string types, so a value added after this release arrives as is. `Known()` tells you whether this version has a constant for it.
 - **Zero stays apart from unknown.** Delays, durations and times the API may leave out are pointers, so a delay of `0` and no delay reading are different things.
 - **Errors say what to do next.** A number that flies twice comes back with its legs, a `429` with how long to wait, a `402` with the reason and when the allowance resets.
