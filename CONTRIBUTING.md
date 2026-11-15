@@ -70,7 +70,7 @@ Maintainers only.
 
 1. Set `Version` in `version.go` to the new version.
 2. Rename `## Unreleased` in `CHANGELOG.md` to the new version.
-3. Push a tag `v<version>`, for example `v0.1.1`.
+3. Push a tag `v<version>`, for example `v1.0.1`.
 
 A Go module is released by its tag; there is nothing to upload. The release workflow checks that the tag matches `Version` and that the changelog has the section, runs the tests, and creates the GitHub release from the version's `CHANGELOG.md` section. To rehearse a release without creating one, run the workflow by hand from the Actions tab.
 

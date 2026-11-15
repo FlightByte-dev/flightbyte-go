@@ -1,4 +1,4 @@
-# Releases a version when a tag like v0.1.1 is pushed:
+# Releases a version when a tag like v1.0.1 is pushed:
 #   1. checks that the tag matches Version in version.go and that
 #      CHANGELOG.md has a section for the version, then runs the tests;
 #   2. creates the GitHub release from the version's CHANGELOG.md section;

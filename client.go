@@ -92,7 +92,7 @@ func WithTimeout(timeout time.Duration) Option {
 }
 
 // WithUserAgent puts userAgent in front of this package's own User-Agent, so
-// requests read as, for example, "my-app/1.2 flightbyte-go/0.1.0".
+// requests read as, for example, "my-app/1.2 flightbyte-go/1.0.0".
 func WithUserAgent(userAgent string) Option {
 	return func(c *Client) error {
 		c.userAgent = strings.TrimSpace(userAgent) + " " + c.userAgent
